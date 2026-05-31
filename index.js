@@ -38,6 +38,15 @@ Output WAJIB dalam format berikut:
 - [Bug yang diperbaiki]
 - [Saran penggunaan]`;
 
+// ================== CHANNEL WHITELIST ==================
+function isAllowedChannel(channelId) {
+    const allowed = process.env.ALLOWED_CHANNELS;
+    if (!allowed) return true;
+    
+    const allowedList = allowed.split(',').map(id => id.trim());
+    return allowedList.includes(channelId);
+}
+
 // ================== COOLDOWN ==================
 function getCooldowns() {
     if (!fs.existsSync(COOLDOWN_FILE)) return {};
@@ -173,6 +182,9 @@ async function processWithAI(code) {
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
+    // 🔒 Cek channel whitelist
+    if (!isAllowedChannel(message.channel.id)) return;
+
     const attachment = message.attachments.first();
     if (!attachment) return;
 
@@ -225,6 +237,14 @@ client.on('messageCreate', async message => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand() || interaction.commandName !== 'deobfuscate') return;
 
+    // 🔒 Cek channel whitelist
+    if (!isAllowedChannel(interaction.channel.id)) {
+        return interaction.reply({ 
+            content: '❌ Bot ini hanya bisa digunakan di channel tertentu. Silakan gunakan di channel yang ditentukan oleh admin.',
+            ephemeral: true 
+        });
+    }
+
     const attachment = interaction.options.getAttachment('file');
     if (!attachment) return interaction.reply({ content: 'File tidak ditemukan!', ephemeral: true });
 
@@ -268,6 +288,13 @@ client.once('ready', () => {
     console.log(`✅ Bot ${client.user.tag} telah aktif!`);
     console.log(`🔥 Mode: Auto-Scan + Slash Command`);
     console.log(`⏳ Cooldown: 1 script / 24 jam per user`);
+    
+    if (process.env.ALLOWED_CHANNELS) {
+        const channels = process.env.ALLOWED_CHANNELS.split(',').map(c => c.trim());
+        console.log(`🔒 Channel Whitelist: ${channels.length} channel(s)`);
+    } else {
+        console.log(`🌐 Channel: Semua channel (tidak ada whitelist)`);
+    }
     
     const activeAIs = [];
     if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy') activeAIs.push('Groq');
