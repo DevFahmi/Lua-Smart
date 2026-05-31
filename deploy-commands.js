@@ -16,7 +16,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
 (async () => {
     try {
-        await rest.put(Routes.applicationCommands('MASUKKAN_BOT_ID_ANDA'), { body: commands });
+        await rest.put(Routes.applicationCommands('1510438676054671400'), { body: commands });
         console.log('✅ Slash Command berhasil didaftarkan!');
     } catch (error) {
         console.error(error);
