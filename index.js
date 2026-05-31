@@ -28,7 +28,7 @@ Output WAJIB dalam format berikut:
 
 \`\`\`lua
 -- [Cleaned & Improved Roblox Script]
--- Deobfuscated by Lua-Smart AI
+-- Deobfuscated by Lua Smart
 
 [KODE LUA YANG SUDAH BERSIH DAN DIPERBAIKI]
 \`\`\`
@@ -157,8 +157,8 @@ async function processWithAI(code) {
             console.log(`🔄 Mencoba ${provider.name}...`);
             const result = await provider.fn(code);
             if (result) {
-                console.log(`✅ [${provider.name}] Berhasil memproses!`);
-                return { success: true, result, provider: provider.name };
+                console.log(`✅ [Lua Smart] Script berhasil diproses via ${provider.name}!`);
+                return { success: true, result };
             }
         } catch (err) {
             const errMsg = err.response?.data?.error?.message || err.message;
@@ -185,14 +185,14 @@ client.on('messageCreate', async message => {
         });
     }
 
-    const loading = await message.reply('🔄 Sedang memproses script menggunakan AI...');
+    const loading = await message.reply('🔄 **Lua Smart** sedang memproses script...');
 
     try {
         const res = await axios.get(attachment.url, { responseType: 'text' });
         const aiResult = await processWithAI(res.data);
 
         if (!aiResult.success) {
-            return loading.edit('❌ Semua AI gagal memproses script. Coba lagi dalam beberapa menit.');
+            return loading.edit('❌ Gagal memproses script. Coba lagi dalam beberapa menit.');
         }
 
         saveCooldown(message.author.id);
@@ -204,11 +204,12 @@ client.on('messageCreate', async message => {
         const embed = new EmbedBuilder()
             .setTitle('✅ Deobfuscation Berhasil')
             .setColor('Green')
-            .setDescription(`Script dari **${message.author.tag}** telah dibersihkan.`)
+            .setDescription(`Script dari **${message.author.tag}** telah dibersihkan oleh **Lua Smart**.`)
             .addFields(
-                { name: 'AI Used', value: aiResult.provider, inline: true },
-                { name: 'File', value: filename, inline: true }
+                { name: '📄 File', value: filename, inline: true },
+                { name: '⚡ Powered by', value: 'Lua Smart AI', inline: true }
             )
+            .setFooter({ text: 'Lua Smart - Roblox Deobfuscator' })
             .setTimestamp();
 
         await loading.delete();
@@ -243,7 +244,7 @@ client.on('interactionCreate', async interaction => {
         const aiResult = await processWithAI(res.data);
 
         if (!aiResult.success) {
-            return interaction.editReply('❌ Semua AI gagal memproses script.');
+            return interaction.editReply('❌ Gagal memproses script. Coba lagi nanti.');
         }
 
         saveCooldown(interaction.user.id);
@@ -253,7 +254,7 @@ client.on('interactionCreate', async interaction => {
         });
 
         await interaction.editReply({
-            content: `✅ Berhasil! Diproses oleh **${aiResult.provider}**`,
+            content: `✅ Berhasil! Script telah diproses oleh **Lua Smart**.`,
             files: [file]
         });
     } catch (err) {
@@ -269,10 +270,10 @@ client.once('ready', () => {
     console.log(`⏳ Cooldown: 1 script / 24 jam per user`);
     
     const activeAIs = [];
-    if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy') activeAIs.push('Groq (Llama 3.3 70B)');
-    if (process.env.CEREBRAS_API_KEY && process.env.CEREBRAS_API_KEY !== 'dummy') activeAIs.push('Cerebras (Qwen 3 Coder)');
-    if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== 'dummy') activeAIs.push('OpenRouter (Multi)');
-    console.log(`🤖 AI Aktif: ${activeAIs.join(' → ')}`);
+    if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy') activeAIs.push('Groq');
+    if (process.env.CEREBRAS_API_KEY && process.env.CEREBRAS_API_KEY !== 'dummy') activeAIs.push('Cerebras');
+    if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== 'dummy') activeAIs.push('OpenRouter');
+    console.log(`🤖 AI Engine: ${activeAIs.join(' → ')}`);
 });
 
 client.login(process.env.TOKEN);
