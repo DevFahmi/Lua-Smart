@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios');
 const fs = require('fs');
@@ -55,26 +55,70 @@ function isOnCooldown(userId) {
     return Date.now() - lastUsed < 24 * 60 * 60 * 1000;
 }
 
-// ================== PROCESS WITH 3 AI ==================
+// ================== PROCESS WITH AI ==================
 async function processWithAI(code) {
-    const providers = ['gemini', 'grok', 'deepseek'];
-    
+    const providers = [];
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'dummy') providers.push('gemini');
+    if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== 'dummy') providers.push('openrouter');
+    if (process.env.GROK_API_KEY && process.env.GROK_API_KEY !== 'dummy') providers.push('grok');
+    if (process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_API_KEY !== 'dummy') providers.push('deepseek');
+
+    const errors = [];
+
     for (const provider of providers) {
         try {
             let result;
+            
             if (provider === 'gemini') {
-                const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
                 const res = await model.generateContent([SYSTEM_PROMPT, `Script Roblox Luau:\n\n${code}`]);
                 result = res.response.text();
             } 
+            else if (provider === 'openrouter') {
+                // ✅ Coba beberapa model gratis OpenRouter
+                const freeModels = [
+                    "google/gemini-2.0-flash-exp:free",
+                    "meta-llama/llama-3.3-70b-instruct:free",
+                    "qwen/qwen-2.5-coder-32b-instruct:free",
+                    "deepseek/deepseek-chat:free"
+                ];
+                
+                for (const model of freeModels) {
+                    try {
+                        const res = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+                            model: model,
+                            temperature: 0.2,
+                            max_tokens: 8192,
+                            messages: [
+                                { role: "system", content: SYSTEM_PROMPT },
+                                { role: "user", content: `Deobfuscate script Roblox ini:\n\n${code}` }
+                            ]
+                        }, { 
+                            headers: { 
+                                'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                                'HTTP-Referer': 'https://github.com/DevFahmi/Lua-Smart',
+                                'X-Title': 'Lua Smart Bot'
+                            }
+                        });
+                        result = res.data.choices[0].message.content;
+                        if (result) {
+                            console.log(`✅ [OPENROUTER - ${model}] Berhasil!`);
+                            break;
+                        }
+                    } catch (e) {
+                        console.log(`⚠️ [OPENROUTER - ${model}] Gagal, coba model lain...`);
+                        continue;
+                    }
+                }
+            }
             else if (provider === 'grok') {
                 const res = await axios.post('https://api.x.ai/v1/chat/completions', {
-                    model: "grok-beta",
+                    model: "grok-2-latest",
                     temperature: 0.2,
                     max_tokens: 8192,
                     messages: [
                         { role: "system", content: SYSTEM_PROMPT },
-                        { role: "user", content: `Deobfuscate dan improve script Roblox ini:\n\n${code}` }
+                        { role: "user", content: `Deobfuscate script Roblox ini:\n\n${code}` }
                     ]
                 }, { headers: { Authorization: `Bearer ${process.env.GROK_API_KEY}` }});
                 result = res.data.choices[0].message.content;
@@ -86,16 +130,24 @@ async function processWithAI(code) {
                     max_tokens: 8192,
                     messages: [
                         { role: "system", content: SYSTEM_PROMPT },
-                        { role: "user", content: `Deobfuscate dan improve script Roblox ini:\n\n${code}` }
+                        { role: "user", content: `Deobfuscate script Roblox ini:\n\n${code}` }
                     ]
                 }, { headers: { Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}` }});
                 result = res.data.choices[0].message.content;
             }
-            if (result) return result;
+            
+            if (result) {
+                console.log(`✅ [${provider.toUpperCase()}] Berhasil!`);
+                return result;
+            }
         } catch (err) {
-            console.log(`[${provider.toUpperCase()}] Error: ${err.message}`);
+            const errorMsg = err.response?.data?.error?.message || err.message;
+            console.log(`❌ [${provider.toUpperCase()}] Error: ${errorMsg}`);
+            errors.push(`${provider.toUpperCase()}: ${errorMsg}`);
         }
     }
+    
+    console.log('❌ Semua AI gagal:', errors);
     return null;
 }
 
@@ -110,17 +162,17 @@ client.on('messageCreate', async message => {
     if (!filename.endsWith('.lua') && !filename.endsWith('.luau') && !filename.endsWith('.txt')) return;
 
     if (isOnCooldown(message.author.id)) {
-        return message.reply({ content: "❌ Kamu hanya boleh memproses **1 script setiap 24 jam**.", ephemeral: true });
+        return message.reply({ content: "❌ Kamu hanya boleh memproses **1 script setiap 24 jam**." });
     }
 
-    const loading = await message.reply('🔄 Sedang memproses script menggunakan 3 AI...');
+    const loading = await message.reply('🔄 Sedang memproses script menggunakan AI...');
 
     try {
         const res = await axios.get(attachment.url, { responseType: 'text' });
         const result = await processWithAI(res.data);
 
         if (!result) {
-            return loading.edit('❌ Gagal memproses script. Semua API mengalami error.');
+            return loading.edit('❌ Gagal memproses script. Semua AI mengalami error. Coba lagi nanti.');
         }
 
         saveCooldown(message.author.id);
@@ -144,7 +196,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// ================== SLASH COMMAND (Manual) ==================
+// ================== SLASH COMMAND ==================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand() || interaction.commandName !== 'deobfuscate') return;
 
@@ -179,6 +231,7 @@ client.on('interactionCreate', async interaction => {
             files: [file]
         });
     } catch (err) {
+        console.error(err);
         await interaction.editReply('❌ Terjadi error saat memproses.');
     }
 });
@@ -187,6 +240,14 @@ client.once('ready', () => {
     console.log(`✅ Bot ${client.user.tag} telah aktif!`);
     console.log(`🔥 Mode: Auto-Scan + Slash Command`);
     console.log(`⏳ Cooldown: 1 script / 24 jam per user`);
+    
+    // Tampilkan AI yang aktif
+    const activeAIs = [];
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'dummy') activeAIs.push('Gemini');
+    if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== 'dummy') activeAIs.push('OpenRouter');
+    if (process.env.GROK_API_KEY && process.env.GROK_API_KEY !== 'dummy') activeAIs.push('Grok');
+    if (process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_API_KEY !== 'dummy') activeAIs.push('DeepSeek');
+    console.log(`🤖 AI Aktif: ${activeAIs.join(' → ')}`);
 });
 
 client.login(process.env.TOKEN);
