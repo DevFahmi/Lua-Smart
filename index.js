@@ -12,29 +12,19 @@ const client = new Client({
 });
 
 const COOLDOWN_FILE = './cooldowns.json';
-const MAX_CODE_SIZE = 30000;
-const AUTO_DELETE_MS = 60000; // 1 menit
+const MAX_CODE_SIZE = 15000; // ✅ Turunkan jadi 15K karakter (~3-4K token)
+const AUTO_DELETE_MS = 60000;
 
-const SYSTEM_PROMPT = `Kamu adalah Roblox Luau Deobfuscator dan Code Improver expert terbaik.
+const SYSTEM_PROMPT = `Kamu adalah Roblox Luau Deobfuscator expert. 
+Deobfuscate, clean, rename variable, fix bug, dan optimasi script yang dikirim.
 
-Tugasmu:
-1. Deobfuscate script Lua/Luau yang dikirim
-2. Bersihkan kode (clean code, readable, modern)
-3. Rename variable & function menjadi nama yang jelas
-4. Perbaiki bug jika ada
-5. Optimasi performa
-6. Tambahkan komentar penting
-
-Output WAJIB dalam format:
-
+Output format:
 \`\`\`lua
--- [Cleaned & Improved Roblox Script]
--- Deobfuscated by Lua Smart
-
-[KODE LUA BERSIH]
+-- [Cleaned by Lua Smart]
+[KODE BERSIH]
 \`\`\`
 
-**Penjelasan:** [Daftar perubahan]`;
+Berikan penjelasan singkat perubahan.`;
 
 // ================== CHANNEL WHITELIST ==================
 function isAllowedChannel(channelId) {
@@ -63,18 +53,20 @@ function isOnCooldown(userId) {
     return Date.now() - lastUsed < 24 * 60 * 60 * 1000;
 }
 
-// ================== HELPER ==================
 function truncateCode(code, maxLength = MAX_CODE_SIZE) {
     if (code.length <= maxLength) return code;
-    return code.substring(0, maxLength) + '\n\n-- [Script dipotong karena terlalu besar]';
+    return code.substring(0, maxLength) + '\n\n-- [Script dipotong - terlalu besar]';
 }
 
-// ================== AI PROVIDERS ==================
+// ================== AI PROVIDERS (UPDATED MODELS) ==================
+
+// GROQ - Model yang masih aktif Nov 2025
 async function callGroq(code) {
     const models = [
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "gemma2-9b-it"
+        "llama-3.1-8b-instant",          // Cepat, context 131k
+        "llama-3.3-70b-versatile",       // Powerful, context 131k
+        "openai/gpt-oss-20b",            // Backup
+        "openai/gpt-oss-120b"            // Backup pintar
     ];
     
     for (const modelName of models) {
@@ -82,10 +74,10 @@ async function callGroq(code) {
             const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
                 model: modelName,
                 temperature: 0.2,
-                max_tokens: 8000,
+                max_tokens: 4000,             // ✅ Turunkan biar tidak over
                 messages: [
                     { role: "system", content: SYSTEM_PROMPT },
-                    { role: "user", content: `Deobfuscate script Roblox Luau ini:\n\n${code}` }
+                    { role: "user", content: `Deobfuscate:\n\n${code}` }
                 ]
             }, { 
                 headers: { 
@@ -101,18 +93,20 @@ async function callGroq(code) {
             }
         } catch (e) {
             const errMsg = e.response?.data?.error?.message || e.message;
-            console.log(`⚠️ [GROQ - ${modelName}] Skip: ${errMsg.substring(0, 100)}`);
+            console.log(`⚠️ [GROQ - ${modelName}] Skip: ${errMsg.substring(0, 80)}`);
             continue;
         }
     }
     throw new Error('Semua model Groq gagal');
 }
 
+// CEREBRAS - Nama model yang BENAR (tanpa strip di llama)
 async function callCerebras(code) {
     const models = [
-        "llama-3.3-70b",
-        "llama3.1-8b",
-        "qwen-3-32b"
+        "llama3.3-70b",       // ✅ BENAR (sebelumnya: "llama-3.3-70b")
+        "llama3.1-8b",        // ✅ BENAR
+        "qwen-3-32b",         
+        "qwen-3-coder-480b"   
     ];
     
     for (const modelName of models) {
@@ -120,10 +114,10 @@ async function callCerebras(code) {
             const res = await axios.post('https://api.cerebras.ai/v1/chat/completions', {
                 model: modelName,
                 temperature: 0.2,
-                max_tokens: 8000,
+                max_tokens: 4000,
                 messages: [
                     { role: "system", content: SYSTEM_PROMPT },
-                    { role: "user", content: `Deobfuscate script Roblox Luau ini:\n\n${code}` }
+                    { role: "user", content: `Deobfuscate:\n\n${code}` }
                 ]
             }, { 
                 headers: { 
@@ -139,22 +133,23 @@ async function callCerebras(code) {
             }
         } catch (e) {
             const errMsg = e.response?.data?.error?.message || e.message;
-            console.log(`⚠️ [CEREBRAS - ${modelName}] Skip: ${errMsg.substring(0, 100)}`);
+            console.log(`⚠️ [CEREBRAS - ${modelName}] Skip: ${errMsg.substring(0, 80)}`);
             continue;
         }
     }
     throw new Error('Semua model Cerebras gagal');
 }
 
+// OPENROUTER - Model gratis yang VERIFIED aktif Nov 2025
 async function callOpenRouter(code) {
     const freeModels = [
+        "deepseek/deepseek-chat-v3.1:free",          // Top free model
+        "z-ai/glm-4.5-air:free",                      // GLM Air
+        "qwen/qwen3-coder:free",                      // Coder specialist
         "meta-llama/llama-3.3-70b-instruct:free",
-        "deepseek/deepseek-r1:free",
-        "google/gemini-2.0-flash-exp:free",
-        "qwen/qwen-2.5-coder-32b-instruct:free",
-        "meta-llama/llama-3.2-3b-instruct:free",
-        "mistralai/mistral-7b-instruct:free",
-        "microsoft/phi-3-medium-128k-instruct:free"
+        "deepseek/deepseek-r1-0528:free",             // R1 reasoning
+        "google/gemma-3-27b-it:free",                 // Gemma 3
+        "moonshotai/kimi-k2:free"                     // Kimi K2
     ];
     
     for (const modelName of freeModels) {
@@ -162,10 +157,10 @@ async function callOpenRouter(code) {
             const res = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
                 model: modelName,
                 temperature: 0.2,
-                max_tokens: 8000,
+                max_tokens: 4000,
                 messages: [
                     { role: "system", content: SYSTEM_PROMPT },
-                    { role: "user", content: `Deobfuscate script Roblox Luau ini:\n\n${code}` }
+                    { role: "user", content: `Deobfuscate:\n\n${code}` }
                 ]
             }, { 
                 headers: { 
@@ -182,7 +177,8 @@ async function callOpenRouter(code) {
                 return res.data.choices[0].message.content;
             }
         } catch (e) {
-            console.log(`⚠️ [OR - ${modelName}] Skip: ${e.response?.status || e.message}`);
+            const status = e.response?.status;
+            console.log(`⚠️ [OR - ${modelName}] Skip: ${status || e.message}`);
             continue;
         }
     }
@@ -195,16 +191,17 @@ async function processWithAI(code) {
     const processedCode = truncateCode(code);
     
     if (originalSize > MAX_CODE_SIZE) {
-        console.log(`⚠️ Script dipotong dari ${originalSize} → ${processedCode.length} chars`);
+        console.log(`⚠️ Script dipotong: ${originalSize} → ${processedCode.length} chars`);
     }
     
     const providers = [];
     
-    if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy') {
-        providers.push({ name: 'GROQ', fn: callGroq });
-    }
+    // ✅ Cerebras dulu karena paling cepat & limit besar
     if (process.env.CEREBRAS_API_KEY && process.env.CEREBRAS_API_KEY !== 'dummy') {
         providers.push({ name: 'CEREBRAS', fn: callCerebras });
+    }
+    if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy') {
+        providers.push({ name: 'GROQ', fn: callGroq });
     }
     if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== 'dummy') {
         providers.push({ name: 'OPENROUTER', fn: callOpenRouter });
@@ -219,8 +216,7 @@ async function processWithAI(code) {
                 return { success: true, result };
             }
         } catch (err) {
-            const errMsg = err.response?.data?.error?.message || err.message;
-            console.log(`❌ [${provider.name}] Error: ${errMsg.substring(0, 150)}`);
+            console.log(`❌ [${provider.name}] Semua model gagal`);
         }
     }
     
@@ -255,7 +251,7 @@ client.on('messageCreate', async message => {
         const aiResult = await processWithAI(res.data);
 
         if (!aiResult.success) {
-            return loading.edit('❌ Gagal memproses script. Coba lagi dalam beberapa menit.');
+            return loading.edit('❌ Gagal memproses script. Coba lagi nanti atau gunakan script yang lebih kecil.');
         }
 
         saveCooldown(message.author.id);
@@ -283,13 +279,12 @@ client.on('messageCreate', async message => {
             files: [outputFile]
         });
 
-        // 🗑️ Auto delete setelah 1 menit
         setTimeout(async () => {
             try {
                 await resultMessage.delete();
-                console.log(`🗑️ File hasil dari ${message.author.tag} sudah dihapus.`);
+                console.log(`🗑️ File hasil dari ${message.author.tag} dihapus.`);
             } catch (err) {
-                console.log('⚠️ Gagal hapus pesan auto-scan (mungkin sudah dihapus manual)');
+                console.log('⚠️ Gagal hapus pesan auto-scan');
             }
         }, AUTO_DELETE_MS);
 
@@ -347,13 +342,12 @@ client.on('interactionCreate', async interaction => {
             files: [file]
         });
 
-        // 🗑️ Auto delete setelah 1 menit
         setTimeout(async () => {
             try {
                 await interaction.deleteReply();
-                console.log(`🗑️ File hasil slash command dari ${interaction.user.tag} sudah dihapus.`);
+                console.log(`🗑️ File slash command dari ${interaction.user.tag} dihapus.`);
             } catch (err) {
-                console.log('⚠️ Gagal hapus pesan slash command (mungkin sudah dihapus manual)');
+                console.log('⚠️ Gagal hapus pesan slash command');
             }
         }, AUTO_DELETE_MS);
 
@@ -379,8 +373,8 @@ client.once('ready', () => {
     }
     
     const activeAIs = [];
-    if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy') activeAIs.push('Groq');
     if (process.env.CEREBRAS_API_KEY && process.env.CEREBRAS_API_KEY !== 'dummy') activeAIs.push('Cerebras');
+    if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy') activeAIs.push('Groq');
     if (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== 'dummy') activeAIs.push('OpenRouter');
     console.log(`🤖 AI Engine: ${activeAIs.join(' → ')}`);
 });
