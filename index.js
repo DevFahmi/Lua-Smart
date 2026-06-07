@@ -12,39 +12,35 @@ const client = new Client({
 });
 
 const COOLDOWN_FILE = './cooldowns.json';
+const MAX_CODE_SIZE = 30000;
+const AUTO_DELETE_MS = 60000; // 1 menit
 
 const SYSTEM_PROMPT = `Kamu adalah Roblox Luau Deobfuscator dan Code Improver expert terbaik.
 
 Tugasmu:
-1. Deobfuscate script Lua/Luau yang dikirim (unpack obfuscation, decode strings, dll)
-2. Bersihkan kode sepenuhnya (clean code, readable, modern style)
-3. Rename semua variable, function, dan table menjadi nama yang jelas dan deskriptif
-4. Perbaiki bug dan logic error jika ada
-5. Optimasi performa jika memungkinkan
-6. Tambahkan komentar yang membantu di bagian penting
-7. Gunakan gaya coding Roblox modern (local variables, proper scoping)
+1. Deobfuscate script Lua/Luau yang dikirim
+2. Bersihkan kode (clean code, readable, modern)
+3. Rename variable & function menjadi nama yang jelas
+4. Perbaiki bug jika ada
+5. Optimasi performa
+6. Tambahkan komentar penting
 
-Output WAJIB dalam format berikut:
+Output WAJIB dalam format:
 
 \`\`\`lua
 -- [Cleaned & Improved Roblox Script]
 -- Deobfuscated by Lua Smart
 
-[KODE LUA YANG SUDAH BERSIH DAN DIPERBAIKI]
+[KODE LUA BERSIH]
 \`\`\`
 
-**Penjelasan Perubahan:**
-- [Daftar perubahan yang dilakukan]
-- [Bug yang diperbaiki]
-- [Saran penggunaan]`;
+**Penjelasan:** [Daftar perubahan]`;
 
 // ================== CHANNEL WHITELIST ==================
 function isAllowedChannel(channelId) {
     const allowed = process.env.ALLOWED_CHANNELS;
     if (!allowed) return true;
-    
-    const allowedList = allowed.split(',').map(id => id.trim());
-    return allowedList.includes(channelId);
+    return allowed.split(',').map(id => id.trim()).includes(channelId);
 }
 
 // ================== COOLDOWN ==================
@@ -67,52 +63,98 @@ function isOnCooldown(userId) {
     return Date.now() - lastUsed < 24 * 60 * 60 * 1000;
 }
 
+// ================== HELPER ==================
+function truncateCode(code, maxLength = MAX_CODE_SIZE) {
+    if (code.length <= maxLength) return code;
+    return code.substring(0, maxLength) + '\n\n-- [Script dipotong karena terlalu besar]';
+}
+
 // ================== AI PROVIDERS ==================
 async function callGroq(code) {
-    const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-        model: "llama-3.3-70b-versatile",
-        temperature: 0.2,
-        max_tokens: 8000,
-        messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: `Deobfuscate dan improve script Roblox Luau ini:\n\n${code}` }
-        ]
-    }, { 
-        headers: { 
-            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        timeout: 90000
-    });
-    return res.data.choices[0].message.content;
+    const models = [
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+        "gemma2-9b-it"
+    ];
+    
+    for (const modelName of models) {
+        try {
+            const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: modelName,
+                temperature: 0.2,
+                max_tokens: 8000,
+                messages: [
+                    { role: "system", content: SYSTEM_PROMPT },
+                    { role: "user", content: `Deobfuscate script Roblox Luau ini:\n\n${code}` }
+                ]
+            }, { 
+                headers: { 
+                    'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 120000
+            });
+            
+            if (res.data?.choices?.[0]?.message?.content) {
+                console.log(`✅ [GROQ - ${modelName}] Berhasil!`);
+                return res.data.choices[0].message.content;
+            }
+        } catch (e) {
+            const errMsg = e.response?.data?.error?.message || e.message;
+            console.log(`⚠️ [GROQ - ${modelName}] Skip: ${errMsg.substring(0, 100)}`);
+            continue;
+        }
+    }
+    throw new Error('Semua model Groq gagal');
 }
 
 async function callCerebras(code) {
-    const res = await axios.post('https://api.cerebras.ai/v1/chat/completions', {
-        model: "qwen-3-coder-480b",
-        temperature: 0.2,
-        max_tokens: 8000,
-        messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: `Deobfuscate dan improve script Roblox Luau ini:\n\n${code}` }
-        ]
-    }, { 
-        headers: { 
-            'Authorization': `Bearer ${process.env.CEREBRAS_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        timeout: 90000
-    });
-    return res.data.choices[0].message.content;
+    const models = [
+        "llama-3.3-70b",
+        "llama3.1-8b",
+        "qwen-3-32b"
+    ];
+    
+    for (const modelName of models) {
+        try {
+            const res = await axios.post('https://api.cerebras.ai/v1/chat/completions', {
+                model: modelName,
+                temperature: 0.2,
+                max_tokens: 8000,
+                messages: [
+                    { role: "system", content: SYSTEM_PROMPT },
+                    { role: "user", content: `Deobfuscate script Roblox Luau ini:\n\n${code}` }
+                ]
+            }, { 
+                headers: { 
+                    'Authorization': `Bearer ${process.env.CEREBRAS_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 120000
+            });
+            
+            if (res.data?.choices?.[0]?.message?.content) {
+                console.log(`✅ [CEREBRAS - ${modelName}] Berhasil!`);
+                return res.data.choices[0].message.content;
+            }
+        } catch (e) {
+            const errMsg = e.response?.data?.error?.message || e.message;
+            console.log(`⚠️ [CEREBRAS - ${modelName}] Skip: ${errMsg.substring(0, 100)}`);
+            continue;
+        }
+    }
+    throw new Error('Semua model Cerebras gagal');
 }
 
 async function callOpenRouter(code) {
     const freeModels = [
-        "deepseek/deepseek-chat-v3.1:free",
         "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen3-coder:free",
+        "deepseek/deepseek-r1:free",
         "google/gemini-2.0-flash-exp:free",
-        "mistralai/mistral-small-3.2-24b-instruct:free"
+        "qwen/qwen-2.5-coder-32b-instruct:free",
+        "meta-llama/llama-3.2-3b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "microsoft/phi-3-medium-128k-instruct:free"
     ];
     
     for (const modelName of freeModels) {
@@ -123,7 +165,7 @@ async function callOpenRouter(code) {
                 max_tokens: 8000,
                 messages: [
                     { role: "system", content: SYSTEM_PROMPT },
-                    { role: "user", content: `Deobfuscate dan improve script Roblox Luau ini:\n\n${code}` }
+                    { role: "user", content: `Deobfuscate script Roblox Luau ini:\n\n${code}` }
                 ]
             }, { 
                 headers: { 
@@ -132,7 +174,7 @@ async function callOpenRouter(code) {
                     'X-Title': 'Lua Smart Bot',
                     'Content-Type': 'application/json'
                 },
-                timeout: 90000
+                timeout: 120000
             });
             
             if (res.data?.choices?.[0]?.message?.content) {
@@ -149,6 +191,13 @@ async function callOpenRouter(code) {
 
 // ================== MAIN AI HANDLER ==================
 async function processWithAI(code) {
+    const originalSize = code.length;
+    const processedCode = truncateCode(code);
+    
+    if (originalSize > MAX_CODE_SIZE) {
+        console.log(`⚠️ Script dipotong dari ${originalSize} → ${processedCode.length} chars`);
+    }
+    
     const providers = [];
     
     if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'dummy') {
@@ -164,14 +213,14 @@ async function processWithAI(code) {
     for (const provider of providers) {
         try {
             console.log(`🔄 Mencoba ${provider.name}...`);
-            const result = await provider.fn(code);
+            const result = await provider.fn(processedCode);
             if (result) {
-                console.log(`✅ [Lua Smart] Script berhasil diproses via ${provider.name}!`);
+                console.log(`✅ [Lua Smart] Sukses via ${provider.name}!`);
                 return { success: true, result };
             }
         } catch (err) {
             const errMsg = err.response?.data?.error?.message || err.message;
-            console.log(`❌ [${provider.name}] Error: ${errMsg}`);
+            console.log(`❌ [${provider.name}] Error: ${errMsg.substring(0, 150)}`);
         }
     }
     
@@ -181,8 +230,6 @@ async function processWithAI(code) {
 // ================== AUTO DETECT ATTACHMENT ==================
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
-
-    // 🔒 Cek channel whitelist
     if (!isAllowedChannel(message.channel.id)) return;
 
     const attachment = message.attachments.first();
@@ -195,6 +242,10 @@ client.on('messageCreate', async message => {
         return message.reply({ 
             content: "❌ Kamu hanya boleh memproses **1 script setiap 24 jam**." 
         });
+    }
+
+    if (attachment.size > 500000) {
+        return message.reply('❌ File terlalu besar! Maksimal 500KB.');
     }
 
     const loading = await message.reply('🔄 **Lua Smart** sedang memproses script...');
@@ -219,13 +270,28 @@ client.on('messageCreate', async message => {
             .setDescription(`Script dari **${message.author.tag}** telah dibersihkan oleh **Lua Smart**.`)
             .addFields(
                 { name: '📄 File', value: filename, inline: true },
-                { name: '⚡ Powered by', value: 'Lua Smart AI', inline: true }
+                { name: '⚡ Powered by', value: 'Lua Smart AI', inline: true },
+                { name: '⏰ Auto Delete', value: '1 menit', inline: true }
             )
             .setFooter({ text: 'Lua Smart - Roblox Deobfuscator' })
             .setTimestamp();
 
         await loading.delete();
-        await message.reply({ embeds: [embed], files: [outputFile] });
+        const resultMessage = await message.reply({ 
+            content: '⚠️ **File ini akan dihapus dalam 1 menit. Segera download!**',
+            embeds: [embed], 
+            files: [outputFile]
+        });
+
+        // 🗑️ Auto delete setelah 1 menit
+        setTimeout(async () => {
+            try {
+                await resultMessage.delete();
+                console.log(`🗑️ File hasil dari ${message.author.tag} sudah dihapus.`);
+            } catch (err) {
+                console.log('⚠️ Gagal hapus pesan auto-scan (mungkin sudah dihapus manual)');
+            }
+        }, AUTO_DELETE_MS);
 
     } catch (error) {
         console.error(error);
@@ -237,10 +303,9 @@ client.on('messageCreate', async message => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand() || interaction.commandName !== 'deobfuscate') return;
 
-    // 🔒 Cek channel whitelist
     if (!isAllowedChannel(interaction.channel.id)) {
         return interaction.reply({ 
-            content: '❌ Bot ini hanya bisa digunakan di channel tertentu. Silakan gunakan di channel yang ditentukan oleh admin.',
+            content: '❌ Bot ini hanya bisa digunakan di channel tertentu.',
             ephemeral: true 
         });
     }
@@ -259,6 +324,10 @@ client.on('interactionCreate', async interaction => {
         return interaction.editReply('❌ Kamu hanya boleh memproses 1 script setiap 24 jam.');
     }
 
+    if (attachment.size > 500000) {
+        return interaction.editReply('❌ File terlalu besar! Maksimal 500KB.');
+    }
+
     try {
         const res = await axios.get(attachment.url, { responseType: 'text' });
         const aiResult = await processWithAI(res.data);
@@ -274,9 +343,20 @@ client.on('interactionCreate', async interaction => {
         });
 
         await interaction.editReply({
-            content: `✅ Berhasil! Script telah diproses oleh **Lua Smart**.`,
+            content: `✅ Berhasil! Script telah diproses oleh **Lua Smart**.\n⚠️ **File ini akan dihapus dalam 1 menit. Segera download!**`,
             files: [file]
         });
+
+        // 🗑️ Auto delete setelah 1 menit
+        setTimeout(async () => {
+            try {
+                await interaction.deleteReply();
+                console.log(`🗑️ File hasil slash command dari ${interaction.user.tag} sudah dihapus.`);
+            } catch (err) {
+                console.log('⚠️ Gagal hapus pesan slash command (mungkin sudah dihapus manual)');
+            }
+        }, AUTO_DELETE_MS);
+
     } catch (err) {
         console.error(err);
         await interaction.editReply('❌ Terjadi error saat memproses.');
@@ -288,12 +368,14 @@ client.once('ready', () => {
     console.log(`✅ Bot ${client.user.tag} telah aktif!`);
     console.log(`🔥 Mode: Auto-Scan + Slash Command`);
     console.log(`⏳ Cooldown: 1 script / 24 jam per user`);
+    console.log(`📏 Max script size: ${MAX_CODE_SIZE} chars`);
+    console.log(`🗑️ Auto delete: ${AUTO_DELETE_MS / 1000} detik`);
     
     if (process.env.ALLOWED_CHANNELS) {
         const channels = process.env.ALLOWED_CHANNELS.split(',').map(c => c.trim());
         console.log(`🔒 Channel Whitelist: ${channels.length} channel(s)`);
     } else {
-        console.log(`🌐 Channel: Semua channel (tidak ada whitelist)`);
+        console.log(`🌐 Channel: Semua channel`);
     }
     
     const activeAIs = [];
